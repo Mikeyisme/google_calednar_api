@@ -1,0 +1,143 @@
+from datetime import datetime, timedelta
+import pickle
+import os.path
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import datetime
+from dateutil.relativedelta import relativedelta
+import collections
+
+
+# If modifying these scopes, delete the file token.pickle.
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+
+CREDENTIALS_FILE = 'C:/Users/wmika/Desktop/credentials.json'
+max_interview_hour=0
+max_interview_mint=0
+
+
+def get_calendar_service():
+   creds = None
+   # The file token.pickle stores the user's access and refresh tokens, and is
+   # created automatically when the authorization flow completes for the first
+   # time.
+   if os.path.exists('token.pickle'):
+       with open('token.pickle', 'rb') as token:
+           creds = pickle.load(token)
+       
+   # If there are no (valid) credentials available, let the user log in.
+   if not creds or not creds.valid:
+       if creds and creds.expired and creds.refresh_token:
+           creds.refresh(Request())
+       else:
+           flow = InstalledAppFlow.from_client_secrets_file(
+               CREDENTIALS_FILE, SCOPES)
+           creds = flow.run_local_server(port=0)
+
+       # Save the credentials for the next run
+       with open('token.pickle', 'wb') as token:
+           pickle.dump(creds, token)
+
+   service = build('calendar', 'v3', credentials=creds)
+   return service
+
+def getMapOfMonths(service):
+   # Call the Calendar API
+   start_date = datetime.datetime.today() - timedelta(days=30)
+   now = start_date.isoformat() + 'Z' # 'Z' indicates UTC time
+   today = datetime.datetime.today()
+   total_hours=0
+   total_mints=0
+   monthAgo = today - relativedelta(months=3)
+   tmax = today.isoformat('T') + "Z"
+   tmin = monthAgo.isoformat('T') + "Z"
+   events_Result = service.events().list(
+        calendarId='primary',
+         timeMin=tmin,
+    timeMax=tmax,
+    maxResults=100,
+    singleEvents=True,
+    orderBy='startTime',
+).execute()
+   events = events_Result.get('items', [])
+   months_details = {datetime.datetime.strptime(str(today.month), "%m").strftime("%B"): [], datetime.datetime.strptime(str(today.month-1), "%m").strftime("%B"): [],datetime.datetime.strptime(str(today.month-2), "%m").strftime("%B"):[] }
+   if not events:
+       print('No upcoming events found.')
+   for event in events:
+       start = event['start'].get('dateTime', event['start'].get('date'))
+       end = event['end'].get('dateTime', event['end'].get('date'))
+       if(start.__contains__(str(today.month)+"-")):
+        months_details[datetime.datetime.strptime(str(today.month), "%m").strftime("%B")].append(start+"~"+end)
+       elif (start.__contains__(str(today.month-1)+"-")):
+        months_details[datetime.datetime.strptime(str(today.month-1), "%m").strftime("%B")].append(start+"~"+end)
+       elif (start.__contains__(str(today.month-2)+"-")):
+        months_details[datetime.datetime.strptime(str(today.month-2), "%m").strftime("%B")].append(start+"~"+end)
+       if(event['summary'].__contains__("interview")):
+        value = start+"~"+end
+        start_hour = int(value.split("~")[0].split("T")[1].split("Z")[0].split(":")[0])
+        start_mint = int(value.split("~")[0].split("T")[1].split("Z")[0].split(":")[1])
+        end_hour = int(value.split("~")[1].split("T")[1].split("Z")[0].split(":")[0])
+        end_mint = int(value.split("~")[1].split("T")[1].split("Z")[0].split(":")[1])
+        total_hours = int(total_hours)+int(end_hour-start_hour)
+        mints_diff = end_mint-start_mint
+        if(str(mints_diff).__contains__("-")):
+         total_hours = total_hours-1
+         mints_diff = int(mints_diff)+60
+        total_mints=total_mints+mints_diff
+        total_hours=int(total_hours)+total_mints//60
+        total_mints=total_mints%60
+        max_interview_hour=total_hours
+        max_interview_mint=total_mints
+        #print(event['summary'],start,end)
+   print("1. Time spent in Recruiting/Conducting interviews in three months\n")
+   print("Total", max_interview_hour, "hours and", max_interview_mint, "minutes spent.")     
+   print("---------------------------------------------------------------------------------------------------------------------")
+   return months_details
+#from cal_setup import get_calendar_service
+
+def getTotalHours(months_details):
+   max_meeting=0
+   max_month=""
+   min_month=""
+   min_meeting=12121232
+   print("2. Total time spent in meetings per month for the last 3 months\n")
+   keys = months_details.keys()
+   for key in keys:
+       total_hours=0
+       total_mints=0
+       values = months_details.get(key)
+       for value in values:
+           #print(value.split("~")[0].split("T")[1].split("Z")[0],value.split("~")[1].split("T")[1].split("Z")[0])
+           start_hour = int(value.split("~")[0].split("T")[1].split("Z")[0].split(":")[0])
+           start_mint = int(value.split("~")[0].split("T")[1].split("Z")[0].split(":")[1])
+           end_hour = int(value.split("~")[1].split("T")[1].split("Z")[0].split(":")[0])
+           end_mint = int(value.split("~")[1].split("T")[1].split("Z")[0].split(":")[1])
+           total_hours = int(total_hours)+int(end_hour-start_hour)
+           mints_diff = end_mint-start_mint
+           if(str(mints_diff).__contains__("-")):
+            total_hours = total_hours-1
+            mints_diff = int(mints_diff)+60
+           total_mints=total_mints+mints_diff
+           total_hours=int(total_hours)+total_mints//60
+           total_mints=total_mints%60
+       print(key,"-",total_hours,"hours",total_mints,"minutes") 
+       if(len(values)>max_meeting):
+        max_meeting = len(values)
+        max_month=key
+       if (len(values)<min_meeting):
+        min_meeting = len(values)
+        min_month=key
+   print("---------------------------------------------------------------------------------------------------------------------")
+   print("3. Which month had the highest number of meetings / least number of meetings\n")
+   print("highest -",max_month,",",max_meeting,"meetings")
+   print("least -",min_month,",",min_meeting,"meetings")
+   print("---------------------------------------------------------------------------------------------------------------------")
+def main():
+   service = get_calendar_service()
+   months_details = getMapOfMonths(service)
+   getTotalHours(months_details)
+   
+if __name__ == '__main__':
+   main()
+
